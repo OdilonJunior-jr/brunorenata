@@ -397,9 +397,12 @@ function setSecurityHeaders(req, res) {
   if (req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https') res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
 }
 
-async function handleApiRequest(req, res) {
+async function handleApiRoute(req, res, pathname) {
   setSecurityHeaders(req, res);
-  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const base = `http://${req.headers.host || 'localhost'}`;
+  const incoming = new URL(req.url || '/', base);
+  const url = new URL(pathname, base);
+  url.search = incoming.search;
   try {
     return await api(req, res, url);
   } catch (error) {
@@ -409,6 +412,11 @@ async function handleApiRequest(req, res) {
       return send(res, 500, { error: 'Não foi possível concluir a operação.' });
     }
   }
+}
+
+async function handleApiRequest(req, res) {
+  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  return handleApiRoute(req, res, url.pathname);
 }
 
 async function handleLocalRequest(req, res) {
@@ -428,4 +436,5 @@ if (require.main === module) {
 // Vercel pode detectar server.js como entrypoint principal.
 module.exports = handleLocalRequest;
 module.exports.handleApiRequest = handleApiRequest;
+module.exports.handleApiRoute = handleApiRoute;
 module.exports.handleLocalRequest = handleLocalRequest;
