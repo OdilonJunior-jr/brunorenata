@@ -93,7 +93,24 @@ function ensureDatabaseConfigured() {
 }
 
 function throwDatabaseError(error) {
-  if (error) throw new Error('Falha ao acessar o banco de dados.');
+  if (!error) return;
+  console.error('Supabase database error:', {
+    message: error.message,
+    code: error.code,
+    details: error.details,
+    hint: error.hint,
+    status: error.status
+  });
+  const wrapped = new Error('Falha ao acessar o banco de dados.');
+  wrapped.code = 'SUPABASE_DATABASE_ERROR';
+  wrapped.databaseError = {
+    message: error.message || 'Erro desconhecido',
+    code: error.code || null,
+    details: error.details || null,
+    hint: error.hint || null,
+    status: error.status || null
+  };
+  throw wrapped;
 }
 
 async function findStoredDuplicate(contactType, contactValue, choice) {
@@ -252,7 +269,34 @@ function sameSecret(value, expected) {
 
 async function api(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/health') {
-    return send(res, 200, { ok: true, database: USE_SUPABASE ? 'supabase' : (USE_SQLITE ? 'sqlite' : 'not_configured'), databaseConfigured: DATABASE_CONFIGURED, adminConfigured: Boolean(ADMIN_PASSWORD && ADMIN_SESSION_SECRET.length >= 32), time: new Date().toISOString() });
+    const base = {
+      ok: true,
+      database: USE_SUPABASE ? 'supabase' : (USE_SQLITE ? 'sqlite' : 'not_configured'),
+      databaseConfigured: DATABASE_CONFIGURED,
+      adminConfigured: Boolean(ADMIN_PASSWORD && ADMIN_SESSION_SECRET.length >= 32),
+      time: new Date().toISOString()
+    };
+    if (USE_SUPABASE) {
+      const { error } = await supabase.from('requests').select('id').limit(1);
+      if (error) {
+        console.error('Supabase health check failed:', {
+          message: error.message, code: error.code, details: error.details, hint: error.hint, status: error.status
+        });
+        return send(res, 503, {
+          ...base,
+          ok: false,
+          databaseReachable: false,
+          databaseError: {
+            message: error.message || 'Erro desconhecido',
+            code: error.code || null,
+            hint: error.hint || null,
+            status: error.status || null
+          }
+        });
+      }
+      base.databaseReachable = true;
+    }
+    return send(res, 200, base);
   }
   if (req.method === 'POST' && url.pathname === '/api/requests') {
     try {
