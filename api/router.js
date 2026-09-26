@@ -1,30 +1,23 @@
 const server = require('../server');
 
 module.exports = async function handler(req, res) {
-  let route = req.query?.path;
+  let route = req.query && req.query.path;
 
   if (Array.isArray(route)) route = route.join('/');
   route = String(route || '').replace(/^\/+|\/+$/g, '');
 
-  // Fallback para ambientes onde o parâmetro do rewrite não vier em req.query.
+  // Fallback: em alguns runtimes a query pode permanecer só em req.url.
   if (!route) {
-    const candidates = [
-      req.headers['x-forwarded-uri'],
-      req.headers['x-original-uri'],
-      req.headers['x-rewrite-url'],
-      req.url
-    ].filter(Boolean);
+    try {
+      const parsed = new URL(req.url || '', `https://${req.headers.host || 'localhost'}`);
+      route = String(parsed.searchParams.get('path') || '').replace(/^\/+|\/+$/g, '');
+    } catch {}
+  }
 
-    for (const candidate of candidates) {
-      try {
-        const parsed = new URL(String(candidate), `https://${req.headers.host || 'localhost'}`);
-        const pathname = parsed.pathname.replace(/^\/+|\/+$/g, '');
-        if (pathname.startsWith('api/') && pathname !== 'api/router') {
-          route = pathname.slice(4);
-          break;
-        }
-      } catch {}
-    }
+  if (!route) {
+    res.statusCode = 400;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    return res.end(JSON.stringify({ error: 'Rota da API não recebida pelo roteador.' }));
   }
 
   req.url = `/api/${route}`;
