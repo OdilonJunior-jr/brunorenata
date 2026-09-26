@@ -277,24 +277,46 @@ async function api(req, res, url) {
       time: new Date().toISOString()
     };
     if (USE_SUPABASE) {
-      const { error } = await supabase.from('requests').select('id').limit(1);
-      if (error) {
-        console.error('Supabase health check failed:', {
-          message: error.message, code: error.code, details: error.details, hint: error.hint, status: error.status
+      try {
+        const response = await fetch(`${SUPABASE_URL}/rest/v1/requests?select=id&limit=1`, {
+          headers: {
+            apikey: SUPABASE_SECRET_KEY,
+            Accept: 'application/json'
+          }
         });
+        const rawText = await response.text();
+        let rawBody = rawText;
+        try { rawBody = JSON.parse(rawText); } catch {}
+        if (!response.ok) {
+          console.error('Supabase raw health check failed:', { status: response.status, body: rawBody });
+          return send(res, 503, {
+            ...base,
+            ok: false,
+            databaseReachable: false,
+            databaseError: {
+              message: (rawBody && typeof rawBody === 'object' && (rawBody.message || rawBody.error)) || 'Supabase recusou a requisicao.',
+              code: (rawBody && typeof rawBody === 'object' && rawBody.code) || null,
+              hint: (rawBody && typeof rawBody === 'object' && rawBody.hint) || null,
+              status: response.status
+            }
+          });
+        }
+        base.databaseReachable = true;
+        base.databaseHttpStatus = response.status;
+      } catch (error) {
+        console.error('Supabase raw health check network failure:', error);
         return send(res, 503, {
           ...base,
           ok: false,
           databaseReachable: false,
           databaseError: {
-            message: error.message || 'Erro desconhecido',
-            code: error.code || null,
-            hint: error.hint || null,
-            status: error.status || null
+            message: error && error.message ? error.message : 'Falha de rede ao acessar o Supabase.',
+            code: null,
+            hint: null,
+            status: null
           }
         });
       }
-      base.databaseReachable = true;
     }
     return send(res, 200, base);
   }
